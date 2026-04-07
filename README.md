@@ -1,4 +1,4 @@
-# VoiceInput
+# Voca
 
 A macOS menu-bar application that converts speech to text in real time using Apple's built-in Speech Recognition framework. Press a hotkey, speak, and the transcribed text is injected directly into the currently focused text field.
 
@@ -26,7 +26,7 @@ make clean   # remove build artifacts
 
 The full source code lives at **<https://github.com/yetone/voice-input-src>**.
 
-> **Reproducibility guarantee:** the source repository contains every file needed to produce **exactly** this distributed artifact. You can clone it and run `make build` to obtain an identical `VoiceInput.app` bundle. The build process is recorded and publicly verifiable — see the asciinema session below.
+> **Reproducibility guarantee:** the source repository contains every file needed to produce **exactly** this distributed artifact. You can clone it and run `make build` to obtain an identical `Voca.app` bundle. The build process is recorded and publicly verifiable — see the asciinema session below.
 
 ## Build Recording
 

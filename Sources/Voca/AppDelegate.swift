@@ -323,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusIcon(recording: Bool) {
         guard let button = statusItem.button else { return }
         let name = recording ? "mic.fill" : "mic"
-        button.image = NSImage(systemSymbolName: name, accessibilityDescription: "Voice Input")
+        button.image = NSImage(systemSymbolName: name, accessibilityDescription: "Voca")
         button.contentTintColor = recording ? .systemRed : nil
     }
 
@@ -464,10 +464,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Accessibility Permission Required"
         alert.informativeText = """
-            VoiceInput needs Accessibility permission to monitor the Fn key.
+            Voca needs Accessibility permission to monitor the Fn key.
 
             1. Open System Settings → Privacy & Security → Accessibility
-            2. Add and enable VoiceInput
+            2. Add and enable Voca
             3. Restart the app
             """
         alert.alertStyle = .warning

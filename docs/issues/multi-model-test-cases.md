@@ -6,7 +6,7 @@
 2. 运行应用：`make run`
 3. 首次运行前清理旧配置：
    ```bash
-   defaults delete com.yetone.VoiceInput 2>/dev/null; rm ~/Library/Logs/VoiceInput.log 2>/dev/null
+   defaults delete com.yetone.Voca 2>/dev/null; rm ~/Library/Logs/Voca.log 2>/dev/null
    ```
 
 ---
@@ -31,7 +31,7 @@
 **验证方法**:
 ```bash
 # 检查日志
-cat ~/Library/Logs/VoiceInput.log | grep "Migrated"
+cat ~/Library/Logs/Voca.log | grep "Migrated"
 # 应显示: "Migrated legacy LLM config to new format"
 ```
 
@@ -155,7 +155,7 @@ cat ~/Library/Logs/VoiceInput.log | grep "Migrated"
 **验证方法**:
 ```bash
 # 触发一次语音输入后检查日志
-cat ~/Library/Logs/VoiceInput.log | grep "model="
+cat ~/Library/Logs/Voca.log | grep "model="
 # 应显示 Model B 的 model 值
 ```
 
@@ -206,7 +206,7 @@ cat ~/Library/Logs/VoiceInput.log | grep "model="
 
 **验证**:
 ```bash
-cat ~/Library/Logs/VoiceInput.log | tail -20
+cat ~/Library/Logs/Voca.log | tail -20
 # 应看到 Model B 的 URL 和 model 值
 ```
 
@@ -298,6 +298,6 @@ cat ~/Library/Logs/VoiceInput.log | tail -20
 测试完成后清理:
 ```bash
 # 退出应用后执行
-defaults delete com.yetone.VoiceInput 2>/dev/null
-rm ~/Library/Logs/VoiceInput.log 2>/dev/null
+defaults delete com.yetone.Voca 2>/dev/null
+rm ~/Library/Logs/Voca.log 2>/dev/null
 ```

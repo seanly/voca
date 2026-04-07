@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "VoiceInput",
+    name: "Voca",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "VoiceInput",
-            path: "Sources/VoiceInput"
+            name: "Voca",
+            path: "Sources/Voca"
         )
     ]
 )

@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>VoiceInput</string>
+    <string>Voca</string>
     <key>CFBundleIdentifier</key>
-    <string>com.yetone.VoiceInput</string>
+    <string>com.yetone.Voca</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>
@@ -13,14 +13,14 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
-    <string>VoiceInput</string>
+    <string>Voca</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VoiceInput needs microphone access to record your speech for transcription.</string>
+    <string>Voca needs microphone access to record your speech for transcription.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>VoiceInput uses speech recognition to convert your voice to text.</string>
+    <string>Voca uses speech recognition to convert your voice to text.</string>
 </dict>
 </plist>

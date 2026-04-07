@@ -1,4 +1,4 @@
-APP_NAME := VoiceInput
+APP_NAME := Voca
 APP_BUNDLE := $(APP_NAME).app
 BUILD_DIR := $(shell swift build -c release --show-bin-path 2>/dev/null || echo .build/release)
 

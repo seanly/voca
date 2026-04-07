@@ -1,12 +1,12 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.yetone.VoiceInput", category: "LLMRefiner")
+private let logger = Logger(subsystem: "com.yetone.Voca", category: "LLMRefiner")
 
 private func logToFile(_ message: String) {
     let msg = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
     let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/VoiceInput.log")
+        .appendingPathComponent("Library/Logs/Voca.log")
     if let handle = try? FileHandle(forWritingTo: logURL) {
         handle.seekToEndOfFile()
         handle.write(msg.data(using: .utf8)!)

@@ -250,14 +250,10 @@ final class ModelEditorWindow: NSPanel {
     
     private let nameField = NSTextField()
     private let urlField = NSTextField()
-    private let keyField: NSTextField = {
-        let field = NSTextField()
-        // Use secure text field cell for API key
-        let cell = NSSecureTextFieldCell(textCell: "")
-        cell.echosBullets = true
-        field.cell = cell
-        return field
-    }()
+    private let keyField = NSSecureTextField()
+    private let keyVisibleField = NSTextField()
+    private let keyToggleButton = NSButton()
+    private var isKeyVisible = false
     private let modelField = NSTextField()
     private let enabledCheckbox = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
     private let presetPopup = NSPopUpButton()
@@ -297,15 +293,52 @@ final class ModelEditorWindow: NSPanel {
         nameField.placeholderString = "My OpenAI"
         urlField.placeholderString = "https://api.openai.com/v1"
         keyField.placeholderString = "sk-..."
+        keyVisibleField.placeholderString = "sk-..."
         modelField.placeholderString = "gpt-4o-mini"
-        
+
+        // Setup key visibility toggle
+        keyToggleButton.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Toggle visibility")
+        keyToggleButton.bezelStyle = .regularSquare
+        keyToggleButton.isBordered = false
+        keyToggleButton.target = self
+        keyToggleButton.action = #selector(toggleKeyVisibility)
+        keyToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        keyToggleButton.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        keyToggleButton.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        // Key field container with toggle button
+        let keyContainer = NSView()
+        keyContainer.translatesAutoresizingMaskIntoConstraints = false
+        keyField.translatesAutoresizingMaskIntoConstraints = false
+        keyVisibleField.translatesAutoresizingMaskIntoConstraints = false
+        keyVisibleField.isHidden = true
+
+        keyContainer.addSubview(keyField)
+        keyContainer.addSubview(keyVisibleField)
+        keyContainer.addSubview(keyToggleButton)
+
+        NSLayoutConstraint.activate([
+            keyField.leadingAnchor.constraint(equalTo: keyContainer.leadingAnchor),
+            keyField.trailingAnchor.constraint(equalTo: keyToggleButton.leadingAnchor, constant: -4),
+            keyField.topAnchor.constraint(equalTo: keyContainer.topAnchor),
+            keyField.bottomAnchor.constraint(equalTo: keyContainer.bottomAnchor),
+
+            keyVisibleField.leadingAnchor.constraint(equalTo: keyContainer.leadingAnchor),
+            keyVisibleField.trailingAnchor.constraint(equalTo: keyToggleButton.leadingAnchor, constant: -4),
+            keyVisibleField.topAnchor.constraint(equalTo: keyContainer.topAnchor),
+            keyVisibleField.bottomAnchor.constraint(equalTo: keyContainer.bottomAnchor),
+
+            keyToggleButton.trailingAnchor.constraint(equalTo: keyContainer.trailingAnchor),
+            keyToggleButton.centerYAnchor.constraint(equalTo: keyContainer.centerYAnchor)
+        ])
+
         // Labels
         let labels = ["Preset:", "Name:", "API Base URL:", "API Key:", "Model:"].map { text -> NSTextField in
             let label = NSTextField(labelWithString: text)
             label.alignment = .right
             return label
         }
-        
+
         // Build grid
         var rows: [[NSView]] = []
         if mode == EditorMode.add {
@@ -314,7 +347,7 @@ final class ModelEditorWindow: NSPanel {
         rows.append(contentsOf: [
             [labels[1], nameField],
             [labels[2], urlField],
-            [labels[3], keyField],
+            [labels[3], keyContainer],
             [labels[4], modelField]
         ])
         
@@ -366,10 +399,35 @@ final class ModelEditorWindow: NSPanel {
         if let model = editingModel {
             nameField.stringValue = model.name
             urlField.stringValue = model.apiBaseURL
-            keyField.stringValue = model.apiKey
+            if !model.apiKey.isEmpty {
+                keyField.placeholderString = "••••••••  (leave empty to keep current)"
+                keyVisibleField.placeholderString = "••••••••  (leave empty to keep current)"
+            }
+            keyField.stringValue = ""
+            keyVisibleField.stringValue = ""
             modelField.stringValue = model.model
             enabledCheckbox.state = model.isEnabled ? .on : .off
         }
+    }
+
+    @objc private func toggleKeyVisibility() {
+        isKeyVisible.toggle()
+        if isKeyVisible {
+            keyVisibleField.stringValue = keyField.stringValue
+            keyField.isHidden = true
+            keyVisibleField.isHidden = false
+            keyToggleButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "Hide")
+        } else {
+            keyField.stringValue = keyVisibleField.stringValue
+            keyVisibleField.isHidden = true
+            keyField.isHidden = false
+            keyToggleButton.image = NSImage(systemSymbolName: "eye.slash", accessibilityDescription: "Show")
+        }
+    }
+
+    /// Returns the current API key value from whichever field is active
+    private var currentKeyValue: String {
+        isKeyVisible ? keyVisibleField.stringValue : keyField.stringValue
     }
     
     @objc private func presetChanged() {
@@ -384,28 +442,30 @@ final class ModelEditorWindow: NSPanel {
     
     @objc private func save() {
         let model: LLMModel
-        
+
         switch mode {
         case .add:
             model = LLMModel(
                 name: nameField.stringValue,
                 apiBaseURL: urlField.stringValue,
-                apiKey: keyField.stringValue,
+                apiKey: currentKeyValue,
                 model: modelField.stringValue,
                 isEnabled: enabledCheckbox.state == .on
             )
         case .edit:
             guard let existing = editingModel else { return }
+            // If keyField is empty, keep the existing API key
+            let newApiKey = currentKeyValue.isEmpty ? existing.apiKey : currentKeyValue
             model = LLMModel(
                 id: existing.id,
                 name: nameField.stringValue,
                 apiBaseURL: urlField.stringValue,
-                apiKey: keyField.stringValue,
+                apiKey: newApiKey,
                 model: modelField.stringValue,
                 isEnabled: enabledCheckbox.state == .on
             )
         }
-        
+
         onSave(model)
         close()
     }

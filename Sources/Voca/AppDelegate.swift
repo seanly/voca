@@ -25,6 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var promptWindow = PromptWindow(onPromptsChanged: { [weak self] in
         self?.refreshPromptMenu()
     })
+    private lazy var shortcutWindow: ShortcutSettingsWindow = {
+        let w = ShortcutSettingsWindow()
+        w.onShortcutChanged = { [weak self] shortcut in
+            self?.keyMonitor.customHotkey = shortcut
+        }
+        return w
+    }()
     private var languageItems: [NSMenuItem] = []
     private var selectedLocaleCode: String {
         get { UserDefaults.standard.string(forKey: "selectedLocaleCode") ?? "zh-CN" }
@@ -42,6 +49,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
         setupStatusBar()
         setupSpeechCallbacks()
+
+        // Load saved custom shortcut
+        if let savedShortcut = HotkeyShortcut.load() {
+            keyMonitor.customHotkey = savedShortcut
+        }
 
         SpeechEngine.requestPermissions { [weak self] granted, errorMsg in
             if !granted, let msg = errorMsg {
@@ -306,7 +318,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let promptSettingsItem = NSMenuItem(title: "Manage Prompts...", action: #selector(openPromptSettings), keyEquivalent: "")
         promptSettingsItem.target = self
         settingsMenu.addItem(promptSettingsItem)
-        
+
+        let shortcutSettingsItem = NSMenuItem(title: "Trigger Shortcut...", action: #selector(openShortcutSettings), keyEquivalent: "")
+        shortcutSettingsItem.target = self
+        settingsMenu.addItem(shortcutSettingsItem)
+
         settingsItem.submenu = settingsMenu
         menu.addItem(settingsItem)
 
@@ -450,6 +466,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func openPromptSettings() {
         promptWindow.makeKeyAndOrderFront(nil as AnyObject?)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openShortcutSettings() {
+        shortcutWindow.makeKeyAndOrderFront(nil as AnyObject?)
         NSApp.activate(ignoringOtherApps: true)
     }
 

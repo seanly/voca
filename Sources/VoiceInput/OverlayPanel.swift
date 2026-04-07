@@ -4,6 +4,8 @@ import QuartzCore
 final class OverlayPanel: NSPanel {
     private let label = NSTextField(labelWithString: "")
     private let waveformView = WaveformView()
+    private var borderView: NSView!
+    private var stackCenterYConstraint: NSLayoutConstraint?
 
     private let capsuleHeight: CGFloat = 56
     private let hPad: CGFloat = 24
@@ -51,19 +53,19 @@ final class OverlayPanel: NSPanel {
         effect.material = .hudWindow
         effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = capsuleHeight / 2
+        effect.layer?.cornerRadius = 16
         effect.layer?.masksToBounds = true
         effect.appearance = NSAppearance(named: .darkAqua)
         shadowHost.addSubview(effect)
 
         // Subtle inner border for depth
-        let border = NSView(frame: cv.bounds)
-        border.autoresizingMask = [.width, .height]
-        border.wantsLayer = true
-        border.layer?.cornerRadius = capsuleHeight / 2
-        border.layer?.borderWidth = 0.5
-        border.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
-        effect.addSubview(border)
+        borderView = NSView(frame: cv.bounds)
+        borderView.autoresizingMask = [.width, .height]
+        borderView.wantsLayer = true
+        borderView.layer?.cornerRadius = 16
+        borderView.layer?.borderWidth = 0.5
+        borderView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+        effect.addSubview(borderView)
 
         // Layout: waveform + label
         let stack = NSStackView()
@@ -78,7 +80,7 @@ final class OverlayPanel: NSPanel {
 
         label.font = .systemFont(ofSize: 15, weight: .medium)
         label.textColor = NSColor.white.withAlphaComponent(0.92)
-        label.lineBreakMode = .byTruncatingTail
+        label.lineBreakMode = .byTruncatingHead
         label.maximumNumberOfLines = 1
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stack.addArrangedSubview(label)
@@ -88,8 +90,10 @@ final class OverlayPanel: NSPanel {
             waveformView.heightAnchor.constraint(equalToConstant: 32),
             stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: hPad),
             stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -hPad),
-            stack.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
         ])
+        
+        stackCenterYConstraint = stack.centerYAnchor.constraint(equalTo: effect.centerYAnchor)
+        stackCenterYConstraint?.isActive = true
     }
 
     // MARK: - Public
@@ -97,6 +101,10 @@ final class OverlayPanel: NSPanel {
     func show(text: String = "Listening...") {
         label.stringValue = text
         waveformView.isAnimating = true
+        resetBorder()
+
+        // Reset stack position to center
+        stackCenterYConstraint?.constant = 0
 
         let w = idealWidth(for: text)
         guard let screen = NSScreen.main else { return }
@@ -143,8 +151,21 @@ final class OverlayPanel: NSPanel {
         updateText("Refining...")
     }
 
+    /// Flash the border red to indicate LLM refinement failed
+    func showError() {
+        waveformView.isAnimating = false
+        borderView.layer?.borderWidth = 2
+        borderView.layer?.borderColor = NSColor.systemRed.cgColor
+    }
+
+    private func resetBorder() {
+        borderView.layer?.borderWidth = 0.5
+        borderView.layer?.borderColor = NSColor.white.withAlphaComponent(0.1).cgColor
+    }
+
     func dismiss() {
         waveformView.isAnimating = false
+        resetBorder()
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.22
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)

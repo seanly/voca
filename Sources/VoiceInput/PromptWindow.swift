@@ -1,26 +1,26 @@
 import AppKit
 
-final class SettingsWindow: NSPanel {
+final class PromptWindow: NSPanel {
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
-    private var models: [LLMModel] = []
-    private var onModelsChanged: (() -> Void)?
+    private var prompts: [Prompt] = []
+    private var onPromptsChanged: (() -> Void)?
     
     // MARK: - Lifecycle
     
-    init(onModelsChanged: (() -> Void)? = nil) {
-        self.onModelsChanged = onModelsChanged
+    init(onPromptsChanged: (() -> Void)? = nil) {
+        self.onPromptsChanged = onPromptsChanged
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 360),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        title = "Manage LLM Models"
+        title = "Manage Prompts"
         isReleasedWhenClosed = false
-        minSize = NSSize(width: 480, height: 300)
+        minSize = NSSize(width: 400, height: 280)
         setupUI()
-        loadModels()
+        loadPrompts()
         center()
     }
     
@@ -34,21 +34,19 @@ final class SettingsWindow: NSPanel {
         tableView.dataSource = self
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tableView.allowsMultipleSelection = false
+        tableView.target = self
+        tableView.doubleAction = #selector(editPrompt)
         
         // Add columns
         let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         nameColumn.title = "Name"
-        nameColumn.width = 150
+        nameColumn.width = 200
         tableView.addTableColumn(nameColumn)
-        
-        let modelColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("model"))
-        modelColumn.title = "Model"
-        modelColumn.width = 180
-        tableView.addTableColumn(modelColumn)
         
         let statusColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("status"))
         statusColumn.title = "Status"
-        statusColumn.width = 80
+        statusColumn.width = 120
         tableView.addTableColumn(statusColumn)
         
         // Scroll view
@@ -59,17 +57,14 @@ final class SettingsWindow: NSPanel {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         
         // Buttons
-        let addButton = NSButton(title: "+", target: self, action: #selector(addModel))
+        let addButton = NSButton(title: "+", target: self, action: #selector(addPrompt))
         addButton.bezelStyle = .rounded
         
-        let editButton = NSButton(title: "Edit", target: self, action: #selector(editModel))
+        let editButton = NSButton(title: "Edit", target: self, action: #selector(editPrompt))
         editButton.bezelStyle = .rounded
         
-        let deleteButton = NSButton(title: "-", target: self, action: #selector(deleteModel))
+        let deleteButton = NSButton(title: "-", target: self, action: #selector(deletePrompt))
         deleteButton.bezelStyle = .rounded
-        
-        let testButton = NSButton(title: "Test Selected", target: self, action: #selector(testSelected))
-        testButton.bezelStyle = .rounded
         
         let closeButton = NSButton(title: "Close", target: self, action: #selector(close))
         closeButton.keyEquivalent = "\r"
@@ -80,7 +75,7 @@ final class SettingsWindow: NSPanel {
         leftButtons.orientation = .horizontal
         leftButtons.spacing = 8
         
-        let rightButtons = NSStackView(views: [testButton, closeButton])
+        let rightButtons = NSStackView(views: [closeButton])
         rightButtons.orientation = .horizontal
         rightButtons.spacing = 8
         
@@ -107,120 +102,69 @@ final class SettingsWindow: NSPanel {
     
     // MARK: - Data
     
-    private func loadModels() {
-        models = LLMRefiner.shared.models
+    private func loadPrompts() {
+        prompts = LLMRefiner.shared.prompts
         tableView.reloadData()
     }
     
     // MARK: - Actions
     
-    @objc private func addModel() {
-        let editor = ModelEditorWindow(mode: .add) { [weak self] model in
-            LLMRefiner.shared.addModel(model)
-            self?.loadModels()
-            self?.onModelsChanged?()
+    @objc private func addPrompt() {
+        let editor = PromptEditorWindow(mode: .add) { [weak self] prompt in
+            LLMRefiner.shared.addPrompt(prompt)
+            self?.loadPrompts()
+            self?.onPromptsChanged?()
         }
         editor.makeKeyAndOrderFront(nil)
     }
     
-    @objc private func editModel() {
+    @objc private func editPrompt() {
         let row = tableView.selectedRow
-        guard row >= 0, row < models.count else { return }
+        guard row >= 0, row < prompts.count else { return }
         
-        let editor = ModelEditorWindow(mode: .edit(models[row].id), editingModel: models[row]) { [weak self] model in
-            LLMRefiner.shared.updateModel(model)
-            self?.loadModels()
-            self?.onModelsChanged?()
+        let editor = PromptEditorWindow(mode: .edit(prompts[row].id), editingPrompt: prompts[row]) { [weak self] prompt in
+            LLMRefiner.shared.updatePrompt(prompt)
+            self?.loadPrompts()
+            self?.onPromptsChanged?()
         }
         editor.makeKeyAndOrderFront(nil)
     }
     
-    @objc private func deleteModel() {
+    @objc private func deletePrompt() {
         let row = tableView.selectedRow
-        guard row >= 0, row < models.count else { return }
+        guard row >= 0, row < prompts.count else { return }
         
         let alert = NSAlert()
-        alert.messageText = "Delete \"\(models[row].name)\"?"
+        alert.messageText = "Delete \"\(prompts[row].name)\"?"
         alert.informativeText = "This action cannot be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         
         if alert.runModal() == .alertFirstButtonReturn {
-            LLMRefiner.shared.removeModel(id: models[row].id)
-            loadModels()
-            onModelsChanged?()
+            LLMRefiner.shared.removePrompt(id: prompts[row].id)
+            loadPrompts()
+            onPromptsChanged?()
         }
-    }
-    
-    @objc private func testSelected() {
-        let row = tableView.selectedRow
-        guard row >= 0, row < models.count else {
-            showAlert(message: "Please select a model to test")
-            return
-        }
-        
-        let model = models[row]
-        guard model.isConfigured else {
-            showAlert(message: "API key is not configured for this model")
-            return
-        }
-        
-        // Temporarily select this model and test
-        let previousId = LLMRefiner.shared.selectedModelId
-        LLMRefiner.shared.selectModel(id: model.id)
-        
-        let alert = NSAlert()
-        alert.messageText = "Testing \(model.name)..."
-        alert.informativeText = "Sending test request..."
-        alert.addButton(withTitle: "Cancel")
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            LLMRefiner.shared.refine("Hello, this is a test.", force: true) { result in
-                alert.buttons.first?.performClick(nil)
-                
-                switch result {
-                case .success(let text):
-                    self.showAlert(message: "✅ Success: \"\(text)\"", style: .informational)
-                case .failure(let error):
-                    self.showAlert(message: "❌ Failed: \(error.localizedDescription)", style: .critical)
-                }
-                
-                // Restore previous selection
-                if let previousId = previousId {
-                    LLMRefiner.shared.selectModel(id: previousId)
-                }
-            }
-        }
-    }
-    
-    private func showAlert(message: String, style: NSAlert.Style = .warning) {
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.alertStyle = style
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 }
 
 // MARK: - NSTableViewDataSource & Delegate
 
-extension SettingsWindow: NSTableViewDataSource, NSTableViewDelegate {
+extension PromptWindow: NSTableViewDataSource, NSTableViewDelegate {
     func numberOfRows(in tableView: NSTableView) -> Int {
-        return models.count
+        return prompts.count
     }
     
     func tableView(_ tableView: NSTableView, objectValueFor tableColumn: NSTableColumn?, row: Int) -> Any? {
-        let model = models[row]
+        let prompt = prompts[row]
         
         switch tableColumn?.identifier.rawValue {
         case "name":
-            return model.name
-        case "model":
-            return model.model
+            return prompt.name
         case "status":
-            let isSelected = LLMRefiner.shared.selectedModelId == model.id
-            let parts = [model.isEnabled ? "Enabled" : "Disabled", isSelected ? "Selected" : nil]
+            let isSelected = LLMRefiner.shared.selectedPromptId == prompt.id
+            let parts = [prompt.isEnabled ? "Enabled" : "Disabled", isSelected ? "Selected" : nil]
             return parts.compactMap { $0 }.joined(separator: ", ")
         default:
             return nil
@@ -228,12 +172,12 @@ extension SettingsWindow: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-// MARK: - Model Editor Window
+// MARK: - Prompt Editor Window
 
-final class ModelEditorWindow: NSPanel {
+final class PromptEditorWindow: NSPanel {
     enum EditorMode: Equatable {
         case add
-        case edit(UUID)  // Store just the ID for Equatable
+        case edit(UUID)
         
         static func == (lhs: EditorMode, rhs: EditorMode) -> Bool {
             switch (lhs, rhs) {
@@ -245,34 +189,25 @@ final class ModelEditorWindow: NSPanel {
     }
     
     private let mode: EditorMode
-    private let editingModel: LLMModel?
-    private let onSave: (LLMModel) -> Void
+    private let editingPrompt: Prompt?
+    private let onSave: (Prompt) -> Void
     
     private let nameField = NSTextField()
-    private let urlField = NSTextField()
-    private let keyField: NSTextField = {
-        let field = NSTextField()
-        // Use secure text field cell for API key
-        let cell = NSSecureTextFieldCell(textCell: "")
-        cell.echosBullets = true
-        field.cell = cell
-        return field
-    }()
-    private let modelField = NSTextField()
+    private var contentTextView: NSTextView!
     private let enabledCheckbox = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
     private let presetPopup = NSPopUpButton()
     
-    init(mode: EditorMode, editingModel: LLMModel? = nil, onSave: @escaping (LLMModel) -> Void) {
+    init(mode: EditorMode, editingPrompt: Prompt? = nil, onSave: @escaping (Prompt) -> Void) {
         self.mode = mode
-        self.editingModel = editingModel
+        self.editingPrompt = editingPrompt
         self.onSave = onSave
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 260),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 400),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
-        title = mode == EditorMode.add ? "Add Model" : "Edit Model"
+        title = mode == EditorMode.add ? "Add Prompt" : "Edit Prompt"
         isReleasedWhenClosed = false
         setupUI()
         loadData()
@@ -286,41 +221,67 @@ final class ModelEditorWindow: NSPanel {
         if mode == EditorMode.add {
             presetPopup.addItem(withTitle: "Custom...")
             presetPopup.menu?.addItem(NSMenuItem.separator())
-            LLMModel.presets.forEach { preset in
-                presetPopup.addItem(withTitle: "\(preset.name) (\(preset.model))")
+            Prompt.presets.forEach { preset in
+                presetPopup.addItem(withTitle: preset.name)
             }
             presetPopup.target = self
             presetPopup.action = #selector(presetChanged)
         }
         
         // Form fields
-        nameField.placeholderString = "My OpenAI"
-        urlField.placeholderString = "https://api.openai.com/v1"
-        keyField.placeholderString = "sk-..."
-        modelField.placeholderString = "gpt-4o-mini"
+        nameField.placeholderString = "My Prompt"
+        
+        // Content text view setup - create inside scrollview
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer()
+        textContainer.widthTracksTextView = true
+        textContainer.heightTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        
+        contentTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 260, height: 150), textContainer: textContainer)
+        contentTextView.font = .systemFont(ofSize: 12)
+        contentTextView.isRichText = false
+        contentTextView.isEditable = true
+        contentTextView.isSelectable = true
+        contentTextView.minSize = NSSize(width: 0, height: 100)
+        contentTextView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        contentTextView.autoresizingMask = [.width, .height]
+        
+        let scrollView = NSScrollView()
+        scrollView.documentView = contentTextView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = false
+        scrollView.borderType = .bezelBorder
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
         
         // Labels
-        let labels = ["Preset:", "Name:", "API Base URL:", "API Key:", "Model:"].map { text -> NSTextField in
-            let label = NSTextField(labelWithString: text)
-            label.alignment = .right
-            return label
+        var labels: [NSTextField] = []
+        if mode == EditorMode.add {
+            labels.append(NSTextField(labelWithString: "Preset:"))
         }
+        labels.append(contentsOf: [
+            NSTextField(labelWithString: "Name:"),
+            NSTextField(labelWithString: "Content:")
+        ])
+        labels.forEach { $0.alignment = .right }
         
         // Build grid
         var rows: [[NSView]] = []
         if mode == EditorMode.add {
             rows.append([labels[0], presetPopup])
         }
-        rows.append(contentsOf: [
-            [labels[1], nameField],
-            [labels[2], urlField],
-            [labels[3], keyField],
-            [labels[4], modelField]
-        ])
+        rows.append([labels[labels.count - 2], nameField])
+        rows.append([labels[labels.count - 1], scrollView])
         
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
+        grid.row(at: 0).topPadding = 0
+        grid.row(at: rows.count - 1).topPadding = 8
+        grid.row(at: rows.count - 1).bottomPadding = 0
         grid.rowSpacing = 12
         grid.columnSpacing = 8
         
@@ -351,24 +312,28 @@ final class ModelEditorWindow: NSPanel {
             grid.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
             grid.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
             
-            enabledCheckbox.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 16),
+            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            
+            enabledCheckbox.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 12),
             enabledCheckbox.leadingAnchor.constraint(equalTo: grid.leadingAnchor, constant: 80),
             
-            buttonRow.topAnchor.constraint(equalTo: enabledCheckbox.bottomAnchor, constant: 20),
+            buttonRow.topAnchor.constraint(equalTo: enabledCheckbox.bottomAnchor, constant: 12),
             buttonRow.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
-            buttonRow.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20)
+            buttonRow.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -16)
         ])
         
-        urlField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
+        scrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
     }
     
     private func loadData() {
-        if let model = editingModel {
-            nameField.stringValue = model.name
-            urlField.stringValue = model.apiBaseURL
-            keyField.stringValue = model.apiKey
-            modelField.stringValue = model.model
-            enabledCheckbox.state = model.isEnabled ? .on : .off
+        if let prompt = editingPrompt {
+            nameField.stringValue = prompt.name
+            contentTextView.string = prompt.content
+            enabledCheckbox.state = prompt.isEnabled ? .on : .off
+        } else {
+            // Default to first preset content
+            contentTextView.string = Prompt.presets[0].content
+            enabledCheckbox.state = .on
         }
     }
     
@@ -376,37 +341,32 @@ final class ModelEditorWindow: NSPanel {
         let index = presetPopup.indexOfSelectedItem
         guard index > 1 else { return } // "Custom..." or separator
         
-        let preset = LLMModel.presets[index - 2]
+        let preset = Prompt.presets[index - 2]
         nameField.stringValue = preset.name
-        urlField.stringValue = preset.apiBaseURL
-        modelField.stringValue = preset.model
+        contentTextView.string = preset.content
     }
     
     @objc private func save() {
-        let model: LLMModel
+        let prompt: Prompt
         
         switch mode {
         case .add:
-            model = LLMModel(
+            prompt = Prompt(
                 name: nameField.stringValue,
-                apiBaseURL: urlField.stringValue,
-                apiKey: keyField.stringValue,
-                model: modelField.stringValue,
+                content: contentTextView.string,
                 isEnabled: enabledCheckbox.state == .on
             )
         case .edit:
-            guard let existing = editingModel else { return }
-            model = LLMModel(
+            guard let existing = editingPrompt else { return }
+            prompt = Prompt(
                 id: existing.id,
                 name: nameField.stringValue,
-                apiBaseURL: urlField.stringValue,
-                apiKey: keyField.stringValue,
-                model: modelField.stringValue,
+                content: contentTextView.string,
                 isEnabled: enabledCheckbox.state == .on
             )
         }
         
-        onSave(model)
+        onSave(prompt)
         close()
     }
 }

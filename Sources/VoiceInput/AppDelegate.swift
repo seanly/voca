@@ -10,12 +10,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var isEnabled = true
     private var isRecording = false
+    private var isFinishing = false
     private var lastPartialResult = ""
     private var finalResultTimer: Timer?
 
     private var enableMenuItem: NSMenuItem!
-    private var llmMenuItem: NSMenuItem!
-    private lazy var settingsWindow = SettingsWindow()
+    private var llmItem: NSMenuItem!
+    private var llmModelItems: [NSMenuItem] = []
+    private var promptItems: [NSMenuItem] = []
+    private var promptMenuItem: NSMenuItem!
+    private lazy var settingsWindow = SettingsWindow(onModelsChanged: { [weak self] in
+        self?.refreshLLMModelMenu()
+    })
+    private lazy var promptWindow = PromptWindow(onPromptsChanged: { [weak self] in
+        self?.refreshPromptMenu()
+    })
     private var languageItems: [NSMenuItem] = []
     private var selectedLocaleCode: String {
         get { UserDefaults.standard.string(forKey: "selectedLocaleCode") ?? "zh-CN" }
@@ -30,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             speechEngine.locale = Locale(identifier: savedCode)
         }
 
+        setupMainMenu()
         setupStatusBar()
         setupSpeechCallbacks()
 
@@ -45,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         keyMonitor.onFnDown = { [weak self] in self?.fnDown() }
         keyMonitor.onFnUp = { [weak self] in self?.fnUp() }
+        keyMonitor.onEscDown = { [weak self] in self?.escDown() }
     }
 
     // MARK: - Key events
@@ -53,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard isEnabled, !isRecording else { return }
         LLMRefiner.shared.cancel()
         isRecording = true
+        keyMonitor.isSessionActive = true
         lastPartialResult = ""
 
         updateStatusIcon(recording: true)
@@ -71,6 +83,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         finalResultTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
             self?.finishTranscription()
+        }
+    }
+
+    private func escDown() {
+        // Cancel LLM refinement if in progress
+        LLMRefiner.shared.cancel()
+
+        // Dismiss overlay panel
+        overlayPanel.dismiss()
+
+        // Reset state
+        lastPartialResult = ""
+        finalResultTimer?.invalidate()
+        finalResultTimer = nil
+        keyMonitor.isSessionActive = false
+        isFinishing = false
+
+        // If was recording, stop it
+        if isRecording {
+            isRecording = false
+            updateStatusIcon(recording: false)
+            speechEngine.cancel()
         }
     }
 
@@ -109,6 +143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishTranscription() {
+        guard !isFinishing else { return }
+        isFinishing = true
+
         finalResultTimer?.invalidate()
         finalResultTimer = nil
 
@@ -117,11 +154,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !text.isEmpty else {
             overlayPanel.dismiss()
             lastPartialResult = ""
+            isFinishing = false
+            keyMonitor.isSessionActive = false
             return
         }
 
         let refiner = LLMRefiner.shared
-        if refiner.isEnabled && refiner.isConfigured {
+        if let model = refiner.currentModel, model.isConfigured {
             overlayPanel.showRefining()
             refiner.refine(text) { [weak self] result in
                 guard let self else { return }
@@ -129,45 +168,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 switch result {
                 case .success(let refined):
                     finalText = refined.isEmpty ? text : refined
-                    let wasRefined = finalText != text
-                    if wasRefined {
-                        self.overlayPanel.updateText("✨ \(finalText)")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            self.overlayPanel.dismiss()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                self.textInjector.inject(finalText)
-                                NSSound(named: .init("Pop"))?.play()
-                            }
-                        }
-                    } else {
-                        self.overlayPanel.dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            self.textInjector.inject(finalText)
-                            NSSound(named: .init("Pop"))?.play()
-                        }
-                    }
+                    self.handleFinalText(finalText, wasRefined: finalText != text)
                 case .failure(let error):
                     NSLog("[LLMRefiner] Refine failed: %@", error.localizedDescription)
                     finalText = text
-                    self.overlayPanel.updateText("Refine failed: \(error.localizedDescription)")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        self.overlayPanel.dismiss()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            self.textInjector.inject(finalText)
-                            NSSound(named: .init("Pop"))?.play()
-                        }
-                    }
+                    self.handleFinalText(finalText, wasRefined: false, error: error.localizedDescription)
                 }
-                self.lastPartialResult = ""
             }
         } else {
-            overlayPanel.dismiss()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.textInjector.inject(text)
-                NSSound(named: .init("Pop"))?.play()
-            }
-            lastPartialResult = ""
+            handleFinalText(text, wasRefined: false)
         }
+    }
+    
+    private func handleFinalText(_ text: String, wasRefined: Bool, error: String? = nil) {
+        if error != nil {
+            // Show raw text with red border to indicate error
+            overlayPanel.updateText(text)
+            overlayPanel.showError()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self.injectTextAndCleanup(text)
+            }
+        } else if wasRefined {
+            // Show refined text briefly with sparkle
+            overlayPanel.updateText("✨ \(text)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.injectTextAndCleanup(text)
+            }
+        } else {
+            // Inject immediately
+            overlayPanel.dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.injectTextAndCleanup(text)
+            }
+        }
+    }
+    
+    private func injectTextAndCleanup(_ text: String) {
+        overlayPanel.dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.textInjector.inject(text)
+            NSSound(named: .init("Pop"))?.play()
+        }
+        lastPartialResult = ""
+        isFinishing = false
+        keyMonitor.isSessionActive = false
+    }
+
+    // MARK: - Main Menu
+
+    private func setupMainMenu() {
+        // Setup minimal main menu with Edit menu to support copy/paste in text fields
+        let mainMenu = NSMenu()
+
+        // App menu
+        let appMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // Edit menu
+        let editMenu = NSMenu(title: "Edit")
+        let editMenuItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editMenuItem.submenu = editMenu
+
+        editMenu.addItem(NSMenuItem(title: "Undo", action: #selector(UndoManager.undo), keyEquivalent: "z"))
+        editMenu.addItem(NSMenuItem(title: "Redo", action: #selector(UndoManager.redo), keyEquivalent: "Z"))
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll), keyEquivalent: "a"))
+
+        mainMenu.addItem(editMenuItem)
+        NSApplication.shared.mainMenu = mainMenu
     }
 
     // MARK: - Status bar
@@ -206,27 +279,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         langItem.submenu = langMenu
         menu.addItem(langItem)
 
-        // LLM Refinement submenu
-        let llmItem = NSMenuItem(title: "LLM Refinement", action: nil, keyEquivalent: "")
+        // Prompt - direct prompt list
+        promptMenuItem = NSMenuItem(title: "Prompt", action: nil, keyEquivalent: "")
+        let promptMenu = NSMenu()
+        refreshPromptMenu(in: promptMenu)
+        promptMenuItem.submenu = promptMenu
+        menu.addItem(promptMenuItem)
+
+        // LLM Refinement - direct model list
+        llmItem = NSMenuItem(title: "LLM Refinement", action: nil, keyEquivalent: "")
         let llmMenu = NSMenu()
-
-        llmMenuItem = NSMenuItem(title: "Enabled", action: #selector(toggleLLM), keyEquivalent: "")
-        llmMenuItem.target = self
-        llmMenuItem.state = LLMRefiner.shared.isEnabled ? .on : .off
-        llmMenu.addItem(llmMenuItem)
-
-        llmMenu.addItem(.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openLLMSettings), keyEquivalent: "")
-        settingsItem.target = self
-        llmMenu.addItem(settingsItem)
-
+        refreshLLMModelMenu(in: llmMenu)
         llmItem.submenu = llmMenu
         menu.addItem(llmItem)
 
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "Quit VoiceInput", action: #selector(quit), keyEquivalent: "q")
+        // Settings submenu
+        let settingsItem = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        let settingsMenu = NSMenu()
+        
+        let modelSettingsItem = NSMenuItem(title: "Manage Models...", action: #selector(openLLMSettings), keyEquivalent: ",")
+        modelSettingsItem.target = self
+        settingsMenu.addItem(modelSettingsItem)
+        
+        let promptSettingsItem = NSMenuItem(title: "Manage Prompts...", action: #selector(openPromptSettings), keyEquivalent: "")
+        promptSettingsItem.target = self
+        settingsMenu.addItem(promptSettingsItem)
+        
+        settingsItem.submenu = settingsMenu
+        menu.addItem(settingsItem)
+
+        menu.addItem(.separator())
+
+        // Quit
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -245,17 +332,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleEnabled() {
         isEnabled.toggle()
         enableMenuItem.state = isEnabled ? .on : .off
+        keyMonitor.isEnabled = isEnabled
 
-        if isEnabled {
-            if !keyMonitor.start() {
-                showAccessibilityAlert()
-            }
-        } else {
-            keyMonitor.stop()
+        if !isEnabled {
             if isRecording {
                 speechEngine.cancel()
                 overlayPanel.dismiss()
                 isRecording = false
+                keyMonitor.isSessionActive = false
                 updateStatusIcon(recording: false)
             }
         }
@@ -271,14 +355,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleLLM() {
+    @objc private func selectModel(_ sender: NSMenuItem) {
+        guard let modelId = sender.representedObject as? UUID else { return }
         let refiner = LLMRefiner.shared
-        refiner.isEnabled.toggle()
-        llmMenuItem.state = refiner.isEnabled ? .on : .off
+        // Toggle: if already selected, deselect (disable); otherwise select
+        if refiner.selectedModelId == modelId {
+            refiner.selectedModelId = nil
+        } else {
+            refiner.selectModel(id: modelId)
+        }
+        refreshLLMModelMenu()
+    }
+    
+    private func refreshLLMModelMenu(in menu: NSMenu? = nil) {
+        let targetMenu = menu ?? llmItem?.submenu
+        targetMenu?.removeAllItems()
+        llmModelItems.removeAll()
+        
+        let refiner = LLMRefiner.shared
+        let models = refiner.models
+        let selectedId = refiner.selectedModelId
+        
+        // Add model items
+        for model in models where model.isEnabled {
+            let item = NSMenuItem(
+                title: model.name.isEmpty ? "Unnamed" : model.name,
+                action: #selector(selectModel(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = model.id
+            item.state = (model.id == selectedId) ? .on : .off
+            item.toolTip = "\(model.model) @ \(model.apiBaseURL)"
+            llmModelItems.append(item)
+            targetMenu?.addItem(item)
+        }
+        
+        // Show placeholder if no models
+        if llmModelItems.isEmpty {
+            let item = NSMenuItem(title: "No models configured", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            targetMenu?.addItem(item)
+        }
+    }
+    
+    @objc private func selectPrompt(_ sender: NSMenuItem) {
+        guard let promptId = sender.representedObject as? UUID else { return }
+        let refiner = LLMRefiner.shared
+        // Toggle: if already selected, deselect; otherwise select
+        if refiner.selectedPromptId == promptId {
+            refiner.selectedPromptId = nil
+        } else {
+            refiner.selectPrompt(id: promptId)
+        }
+        refreshPromptMenu()
+    }
+    
+    private func refreshPromptMenu(in menu: NSMenu? = nil) {
+        let targetMenu = menu ?? promptMenuItem?.submenu
+        targetMenu?.removeAllItems()
+        promptItems.removeAll()
+        
+        let refiner = LLMRefiner.shared
+        let prompts = refiner.prompts
+        let selectedId = refiner.selectedPromptId
+        
+        // Add prompt items
+        for prompt in prompts where prompt.isEnabled {
+            let item = NSMenuItem(
+                title: prompt.name.isEmpty ? "Unnamed" : prompt.name,
+                action: #selector(selectPrompt(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = prompt.id
+            item.state = (prompt.id == selectedId) ? .on : .off
+            item.toolTip = String(prompt.content.prefix(100)) + (prompt.content.count > 100 ? "..." : "")
+            promptItems.append(item)
+            targetMenu?.addItem(item)
+        }
+        
+        // Show placeholder if no prompts
+        if promptItems.isEmpty {
+            let item = NSMenuItem(title: "No prompts available", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            targetMenu?.addItem(item)
+        }
     }
 
     @objc private func openLLMSettings() {
-        settingsWindow.makeKeyAndOrderFront(nil)
+        settingsWindow.makeKeyAndOrderFront(nil as AnyObject?)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @objc private func openPromptSettings() {
+        promptWindow.makeKeyAndOrderFront(nil as AnyObject?)
         NSApp.activate(ignoringOtherApps: true)
     }
 

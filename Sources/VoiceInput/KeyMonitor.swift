@@ -3,14 +3,23 @@ import Cocoa
 final class KeyMonitor {
     var onFnDown: (() -> Void)?
     var onFnUp: (() -> Void)?
+    var onEscDown: (() -> Void)?
+
+    /// Controls whether the monitor should intercept keys
+    var isEnabled = true
+    /// Controls whether we're in an active session (recording or refining) where ESC should be intercepted
+    var isSessionActive = false
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var fnPressed = false
 
+    /// ESC key code (0x35 = 53)
+    private let escKeyCode: CGKeyCode = 0x35
+
     /// Start monitoring. Returns false if accessibility permission is missing.
     func start() -> Bool {
-        let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+        let mask = CGEventMask((1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue))
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
         guard let tap = CGEvent.tapCreate(
@@ -19,7 +28,7 @@ final class KeyMonitor {
             options: .defaultTap,
             eventsOfInterest: mask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
-                guard let refcon else { return Unmanaged.passRetained(event) }
+                guard let refcon else { return Unmanaged.passUnretained(event) }
                 let monitor = Unmanaged<KeyMonitor>.fromOpaque(refcon).takeUnretainedValue()
                 return monitor.handle(type: type, event: event)
             },
@@ -55,22 +64,37 @@ final class KeyMonitor {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-            return Unmanaged.passRetained(event)
+            return Unmanaged.passUnretained(event)
         }
 
+        // Handle keyDown events (ESC key) — only suppress when session is active
+        if type == .keyDown {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if keyCode == Int64(escKeyCode) && isSessionActive {
+                DispatchQueue.main.async { [weak self] in self?.onEscDown?() }
+                return nil // suppress ESC only during active session
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        // Handle flagsChanged events (Fn key) — only suppress when enabled
         let flags = event.flags
         let fnDown = flags.contains(.maskSecondaryFn)
 
         if fnDown && !fnPressed {
             fnPressed = true
-            DispatchQueue.main.async { [weak self] in self?.onFnDown?() }
-            return nil // suppress Fn press (prevents emoji picker)
+            if isEnabled {
+                DispatchQueue.main.async { [weak self] in self?.onFnDown?() }
+                return nil // suppress Fn press (prevents emoji picker)
+            }
         } else if !fnDown && fnPressed {
             fnPressed = false
-            DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
-            return nil // suppress Fn release
+            if isEnabled {
+                DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                return nil // suppress Fn release
+            }
         }
 
-        return Unmanaged.passRetained(event)
+        return Unmanaged.passUnretained(event)
     }
 }

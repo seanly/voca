@@ -2,6 +2,10 @@ import AppKit
 import Carbon
 
 final class TextInjector {
+    /// Tracks the pasteboard change count at the time we overwrote it,
+    /// so we only restore if no one else has written to the clipboard since.
+    private var savedChangeCount: Int = 0
+
     func inject(_ text: String) {
         guard !text.isEmpty else { return }
 
@@ -9,6 +13,7 @@ final class TextInjector {
 
         // Save current clipboard content
         let savedText = pasteboard.string(forType: .string)
+        savedChangeCount = pasteboard.changeCount
 
         // Write transcription to clipboard
         pasteboard.clearContents()
@@ -45,8 +50,10 @@ final class TextInjector {
             }
         }
 
-        // Restore original clipboard content
+        // Restore original clipboard content only if no one else changed it
+        let expectedCount = pasteboard.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard pasteboard.changeCount == expectedCount else { return }
             pasteboard.clearContents()
             if let saved = savedText {
                 pasteboard.setString(saved, forType: .string)

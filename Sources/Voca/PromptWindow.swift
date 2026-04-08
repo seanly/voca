@@ -312,7 +312,7 @@ final class PromptEditorWindow: NSPanel {
             grid.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
             grid.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
             
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
+            scrollView.heightAnchor.constraint(equalToConstant: 150),
             
             enabledCheckbox.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 12),
             enabledCheckbox.leadingAnchor.constraint(equalTo: grid.leadingAnchor, constant: 80),

@@ -87,6 +87,13 @@ final class SpeechEngine {
             }
         }
 
+        // Check if input device is available
+        guard audioEngine.inputNode.inputFormat(forBus: 0).sampleRate > 0 else {
+            onError?("No audio input device available")
+            cleanup()
+            return
+        }
+
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -116,8 +123,13 @@ final class SpeechEngine {
     }
 
     func stopRecording() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        // Only remove tap if it was installed
+        if recognitionRequest != nil {
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
         recognitionRequest?.endAudio()
     }
 
@@ -129,6 +141,9 @@ final class SpeechEngine {
     private func cleanup() {
         if audioEngine.isRunning {
             audioEngine.stop()
+        }
+        // Only remove tap if a request was active
+        if recognitionRequest != nil {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
         recognitionRequest = nil

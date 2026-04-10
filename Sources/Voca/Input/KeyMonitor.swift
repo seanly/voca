@@ -75,6 +75,9 @@ struct HotkeyShortcut: Codable, Equatable {
 }
 
 final class KeyMonitor {
+    /// Shared instance for settings UI to control suspension.
+    static var shared: KeyMonitor?
+
     var onFnDown: (() -> Void)?
     var onFnUp: (() -> Void)?
     var onEscDown: (() -> Void)?
@@ -83,6 +86,8 @@ final class KeyMonitor {
     var isEnabled = true
     /// Controls whether we're in an active session (recording or refining) where ESC should be intercepted
     var isSessionActive = false
+    /// When true, all hotkey handling is suspended (e.g. during shortcut recording in settings)
+    var isSuspended = false
 
     /// Custom hotkey — when set, this is used instead of Fn
     var customHotkey: HotkeyShortcut? {
@@ -93,6 +98,14 @@ final class KeyMonitor {
     private var runLoopSource: CFRunLoopSource?
     private var fnPressed = false
     private var hotkeyPressed = false
+
+    // MARK: - Toggle/Hold dual mode
+    /// Threshold: press < this duration = toggle mode, >= this = hold mode
+    private let toggleThreshold: TimeInterval = 0.4
+    /// Timestamp when the trigger key was pressed down
+    private var keyDownTime: TimeInterval = 0
+    /// Whether we're in toggle mode (short press started recording, waiting for second press to stop)
+    private var isToggleMode = false
 
     /// ESC key code (0x35 = 53)
     private let escKeyCode: CGKeyCode = 0x35
@@ -140,6 +153,11 @@ final class KeyMonitor {
         eventTap = nil
     }
 
+    /// Called by AppDelegate when a session ends (inject/cancel) to reset toggle state.
+    func resetToggle() {
+        isToggleMode = false
+    }
+
     // MARK: - Private
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -151,10 +169,16 @@ final class KeyMonitor {
             return Unmanaged.passUnretained(event)
         }
 
+        // When suspended (e.g. shortcut recording), pass all events through
+        if isSuspended {
+            return Unmanaged.passUnretained(event)
+        }
+
         // Handle ESC key — only suppress when session is active
         if type == .keyDown {
             let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
             if keyCode == Int64(escKeyCode) && isSessionActive {
+                isToggleMode = false
                 DispatchQueue.main.async { [weak self] in self?.onEscDown?() }
                 return nil
             }
@@ -175,22 +199,35 @@ final class KeyMonitor {
     private func handleCustomHotkey(type: CGEventType, event: CGEvent, hotkey: HotkeyShortcut) -> Unmanaged<CGEvent>? {
         let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-        // Mask to only care about modifier keys we track
         let relevantMask: NSEvent.ModifierFlags = [.control, .option, .shift, .command]
         let currentMods = NSEvent.ModifierFlags(rawValue: UInt(flags.rawValue)).intersection(relevantMask)
         let targetMods = hotkey.modifierFlags.intersection(relevantMask)
 
         if keyCode == hotkey.keyCode && currentMods == targetMods {
             if type == .keyDown {
+                if isToggleMode {
+                    // Second press in toggle mode → stop recording
+                    isToggleMode = false
+                    hotkeyPressed = false
+                    DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                    return nil
+                }
                 if !hotkeyPressed {
                     hotkeyPressed = true
+                    keyDownTime = ProcessInfo.processInfo.systemUptime
                     DispatchQueue.main.async { [weak self] in self?.onFnDown?() }
                 }
-                // Suppress all matching keyDown events (including key repeats) while held
                 return nil
             } else if type == .keyUp && hotkeyPressed {
                 hotkeyPressed = false
-                DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                let held = ProcessInfo.processInfo.systemUptime - keyDownTime
+                if held < toggleThreshold {
+                    // Short press → enter toggle mode, do NOT fire onFnUp
+                    isToggleMode = true
+                } else {
+                    // Long press → hold mode, fire onFnUp
+                    DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                }
                 return nil
             }
         }
@@ -205,13 +242,27 @@ final class KeyMonitor {
         if fnDown && !fnPressed {
             fnPressed = true
             if isEnabled {
+                if isToggleMode {
+                    // Second press in toggle mode → stop recording
+                    isToggleMode = false
+                    DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                    return nil
+                }
+                keyDownTime = ProcessInfo.processInfo.systemUptime
                 DispatchQueue.main.async { [weak self] in self?.onFnDown?() }
                 return nil
             }
         } else if !fnDown && fnPressed {
             fnPressed = false
             if isEnabled {
-                DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                let held = ProcessInfo.processInfo.systemUptime - keyDownTime
+                if held < toggleThreshold {
+                    // Short press → toggle mode, keep recording
+                    isToggleMode = true
+                } else {
+                    // Long press → hold mode, stop recording
+                    DispatchQueue.main.async { [weak self] in self?.onFnUp?() }
+                }
                 return nil
             }
         }

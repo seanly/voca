@@ -121,25 +121,23 @@ final class AudioCaptureService {
         // Always remove any existing tap before installing a new one
         inputNode.removeTap(onBus: 0)
 
-        let format = inputNode.outputFormat(forBus: 0)
-
         // For server mode, we need a standard format for WAV export
-        let recordingFormat: AVAudioFormat
-        if isCapturingForServer {
-            recordingFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
-        } else {
-            recordingFormat = format
-        }
+        let serverFormat = isCapturingForServer
+            ? AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
+            : nil
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
+
+            let tapFormat = buffer.format
 
             // Feed to Apple Speech Recognition
             request?.append(buffer)
 
             // Capture for server mode
-            if self.isCapturingForServer, let converter = AVAudioConverter(from: format, to: recordingFormat) {
-                let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * recordingFormat.sampleRate / format.sampleRate)
+            if self.isCapturingForServer, let recordingFormat = serverFormat,
+               let converter = AVAudioConverter(from: tapFormat, to: recordingFormat) {
+                let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * recordingFormat.sampleRate / tapFormat.sampleRate)
                 if let convertedBuffer = AVAudioPCMBuffer(pcmFormat: recordingFormat, frameCapacity: frameCount) {
                     var error: NSError?
                     var allConsumed = false

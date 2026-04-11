@@ -31,7 +31,7 @@ final class ConnectionManager {
     /// Re-evaluate connection state when settings change.
     func updateState() {
         let url = Settings.shared.serverURL
-        if url.isEmpty {
+        if url.isEmpty || !Settings.shared.serverEnabled {
             transitionTo(.localOnly)
             stopHealthCheck()
         } else if state == .localOnly {

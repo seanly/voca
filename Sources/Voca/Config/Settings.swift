@@ -18,6 +18,11 @@ final class Settings {
         set { KeychainHelper.save(key: "serverAuthToken", value: newValue) }
     }
 
+    var serverEnabled: Bool {
+        get { defaults.object(forKey: "serverEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "serverEnabled") }
+    }
+
     // MARK: - Speech Recognition
 
     var selectedLocaleCode: String {

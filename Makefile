@@ -2,7 +2,7 @@ APP_NAME := Voca
 APP_BUNDLE := $(APP_NAME).app
 BUILD_DIR := $(shell swift build -c release --show-bin-path 2>/dev/null || echo .build/release)
 
-.PHONY: build clean install run
+.PHONY: build clean install run help
 
 build:
 	swift build -c release
@@ -26,3 +26,13 @@ install: build
 	rm -rf /Applications/$(APP_BUNDLE)
 	cp -r $(APP_BUNDLE) /Applications/
 	@echo "✅ Installed to /Applications/$(APP_BUNDLE)"
+
+help:
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  build     Build release binary and create $(APP_BUNDLE)"
+	@echo "  run       Build and launch $(APP_BUNDLE)"
+	@echo "  install   Build and install to /Applications"
+	@echo "  clean     Remove build artifacts and $(APP_BUNDLE)"
+	@echo "  help      Show this help message"

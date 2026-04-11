@@ -4,50 +4,114 @@ import Carbon
 /// TextInjector with dual strategy:
 /// 1. Primary: Accessibility API (AXUIElement) to insert text directly
 /// 2. Fallback: Clipboard-based paste (original v1 approach)
+///
+/// Supports injecting into a previously-snapshotted focus target,
+/// restoring the original app to the foreground if the user switched away.
 final class TextInjector {
     private var savedChangeCount: Int = 0
 
-    func inject(_ text: String) {
+    func inject(_ text: String, restoringFocus snapshot: FocusSnapshot? = nil) {
         guard !text.isEmpty else { return }
 
-        // Try Accessibility API first
-        if injectViaAccessibility(text) {
+        if let snapshot, snapshot.isAppRunning {
+            injectWithSnapshot(text, snapshot: snapshot)
             return
         }
 
-        // Fall back to clipboard paste
+        if injectViaAccessibility(text) { return }
         injectViaClipboard(text)
     }
 
-    // MARK: - Accessibility API Injection
+    // MARK: - Snapshot-Aware Injection
 
-    private func injectViaAccessibility(_ text: String) -> Bool {
-        guard let focused = getFocusedElement() else { return false }
+    private func injectWithSnapshot(_ text: String, snapshot: FocusSnapshot) {
+        if snapshot.isValid(), injectIntoElement(text, element: snapshot.element) {
+            return
+        }
 
-        // Try to get the existing selected text range and replace it
+        if !snapshot.isAppFrontmost {
+            activateAndInject(text, snapshot: snapshot)
+        } else {
+            if injectViaAccessibility(text) { return }
+            injectViaClipboard(text)
+        }
+    }
+
+    private func activateAndInject(_ text: String, snapshot: FocusSnapshot) {
+        snapshot.app.activate()
+
+        pollForActivation(snapshot: snapshot, attempts: 0, maxAttempts: 10) { [weak self] activated in
+            guard let self else { return }
+            if activated {
+                if snapshot.isValid(), self.injectIntoElement(text, element: snapshot.element) {
+                    return
+                }
+                if self.injectViaAccessibility(text) { return }
+                self.injectViaClipboard(text)
+            } else {
+                if self.injectViaAccessibility(text) { return }
+                self.injectViaClipboard(text)
+            }
+        }
+    }
+
+    private func pollForActivation(
+        snapshot: FocusSnapshot,
+        attempts: Int,
+        maxAttempts: Int,
+        completion: @escaping (Bool) -> Void
+    ) {
+        if snapshot.isAppFrontmost {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                completion(true)
+            }
+            return
+        }
+        if attempts >= maxAttempts {
+            completion(false)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.pollForActivation(
+                snapshot: snapshot,
+                attempts: attempts + 1,
+                maxAttempts: maxAttempts,
+                completion: completion
+            )
+        }
+    }
+
+    // MARK: - Element-Level Injection
+
+    private func injectIntoElement(_ text: String, element: AXUIElement) -> Bool {
         var selectedRange: CFTypeRef?
-        let rangeResult = AXUIElementCopyAttributeValue(focused, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
+        let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
 
         if rangeResult == .success {
-            // Set selected text (replaces selection, or inserts at cursor if no selection)
-            let result = AXUIElementSetAttributeValue(focused, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
+            let result = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFTypeRef)
             if result == .success {
                 return true
             }
         }
 
-        // Try setting the value directly (works for simple text fields)
         var currentValue: CFTypeRef?
-        let valueResult = AXUIElementCopyAttributeValue(focused, kAXValueAttribute as CFString, &currentValue)
+        let valueResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &currentValue)
         if valueResult == .success, let current = currentValue as? String {
             let newValue = current + text
-            let setResult = AXUIElementSetAttributeValue(focused, kAXValueAttribute as CFString, newValue as CFTypeRef)
+            let setResult = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, newValue as CFTypeRef)
             if setResult == .success {
                 return true
             }
         }
 
         return false
+    }
+
+    // MARK: - Accessibility API Injection
+
+    private func injectViaAccessibility(_ text: String) -> Bool {
+        guard let focused = getFocusedElement() else { return false }
+        return injectIntoElement(text, element: focused)
     }
 
     private func getFocusedElement() -> AXUIElement? {

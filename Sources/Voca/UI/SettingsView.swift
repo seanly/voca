@@ -218,6 +218,7 @@ struct SettingsDetailView: View {
     @State private var connectionStatus = ""
     @State private var isTesting = false
     @State private var locale = Settings.shared.selectedLocaleCode
+    @State private var serverEnabled = Settings.shared.serverEnabled
     @StateObject private var shortcutRecorder = ShortcutRecorder()
 
     private let languages = [
@@ -235,13 +236,24 @@ struct SettingsDetailView: View {
                 // Server connection
                 CardView {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Server Connection", systemImage: "server.rack")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                        HStack {
+                            Label("Server Connection", systemImage: "server.rack")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Toggle("", isOn: $serverEnabled)
+                                .toggleStyle(.switch)
+                                .labelsHidden()
+                                .onChange(of: serverEnabled) { _, val in
+                                    Settings.shared.serverEnabled = val
+                                    ConnectionManager.shared.updateState()
+                                }
+                        }
 
                         VStack(alignment: .leading, spacing: 8) {
                             TextField("Server URL", text: $serverURL)
                                 .textFieldStyle(.roundedBorder)
+                                .disabled(!serverEnabled)
                                 .onChange(of: serverURL) { _, val in
                                     Settings.shared.serverURL = val
                                     ConnectionManager.shared.updateState()
@@ -262,13 +274,14 @@ struct SettingsDetailView: View {
                                 }
                                 .buttonStyle(.borderless)
                             }
+                            .disabled(!serverEnabled)
                             .onChange(of: authToken) { _, val in Settings.shared.serverAuthToken = val }
 
                             HStack(spacing: 8) {
                                 Button("Test Connection") { testConnection() }
                                     .buttonStyle(.borderedProminent)
                                     .controlSize(.small)
-                                    .disabled(isTesting || serverURL.isEmpty)
+                                    .disabled(isTesting || serverURL.isEmpty || !serverEnabled)
                                 if isTesting {
                                     ProgressView().controlSize(.small)
                                 }

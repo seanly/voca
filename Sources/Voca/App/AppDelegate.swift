@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastPartialResult = ""
     private var finalResultTimer: Timer?
     private var recordingAppContext: String?  // Bundle ID of app where recording started
+    private var recordingFocusSnapshot: FocusSnapshot?
 
     // MARK: - Lifecycle
 
@@ -60,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor.isSessionActive = true
         lastPartialResult = ""
         recordingAppContext = AppContextDetector.frontmostAppBundleId()
+        recordingFocusSnapshot = FocusSnapshot.captureCurrentFocus()
 
         statusBar.updateIcon(recording: true)
         overlayPanel.showRecording()
@@ -95,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keyMonitor.isSessionActive = false
         keyMonitor.resetToggle()
         isFinishing = false
+        recordingFocusSnapshot = nil
         if isRecording {
             isRecording = false
             statusBar.updateIcon(recording: false)
@@ -241,15 +244,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func injectTextAndCleanup(_ text: String) {
+        let snapshot = recordingFocusSnapshot
         overlayPanel.dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.textInjector.inject(text)
+            self?.textInjector.inject(text, restoringFocus: snapshot)
             NSSound(named: .init("Pop"))?.play()
         }
         lastPartialResult = ""
         isFinishing = false
         keyMonitor.isSessionActive = false
         keyMonitor.resetToggle()
+        recordingFocusSnapshot = nil
     }
 
     // MARK: - Overlay Callbacks

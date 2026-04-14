@@ -192,10 +192,14 @@ final class OverlayPanel: NSPanel {
     }
 
     /// Show refined result, then auto-inject.
-    func showResult(raw: String, refined: String, wasRefined: Bool) {
+    func showResult(raw: String, refined: String, wasRefined: Bool, unknownWords: [String] = []) {
         currentText = refined
 
-        statusLabel.stringValue = wasRefined ? "REFINED" : "DONE"
+        if unknownWords.isEmpty {
+            statusLabel.stringValue = wasRefined ? "REFINED" : "DONE"
+        } else {
+            statusLabel.stringValue = (wasRefined ? "REFINED" : "DONE") + " · \(unknownWords.count) unknown"
+        }
         textLabel.stringValue = refined
         textLabel.textColor = .labelColor
 

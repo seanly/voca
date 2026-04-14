@@ -219,6 +219,7 @@ struct SettingsDetailView: View {
     @State private var isTesting = false
     @State private var locale = Settings.shared.selectedLocaleCode
     @State private var serverEnabled = Settings.shared.serverEnabled
+    @State private var dictionaryValidation = Settings.shared.appleDictionaryValidationEnabled
     @StateObject private var shortcutRecorder = ShortcutRecorder()
 
     private let languages = [
@@ -310,6 +311,15 @@ struct SettingsDetailView: View {
                         .onChange(of: locale) { _, val in Settings.shared.selectedLocaleCode = val }
 
                         Text("Used for local Apple Speech Recognition. Also sent as a hint when connected to the server.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+
+                        Toggle("Validate English words with Apple Dictionary", isOn: $dictionaryValidation)
+                            .onChange(of: dictionaryValidation) { _, val in
+                                Settings.shared.appleDictionaryValidationEnabled = val
+                            }
+
+                        Text("Marks unknown English words in transcription results using the built-in macOS Dictionary.")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }

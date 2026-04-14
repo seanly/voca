@@ -104,7 +104,33 @@ final class AudioCaptureService {
     func startServerRecording() {
         isCapturingForServer = true
         audioBuffer = Data()
-        startAudioEngine(feedToRequest: nil)
+        recognitionTask?.cancel()
+        recognitionTask = nil
+
+        guard let recognizer = speechRecognizer, recognizer.isAvailable else {
+            onError?("Speech recognizer not available for \(locale.identifier)")
+            return
+        }
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        if #available(macOS 13, *) {
+            request.addsPunctuation = true
+        }
+        recognitionRequest = request
+
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+            if let result {
+                let text = result.bestTranscription.formattedString
+                // Always treat as partial for preview only; final result comes from server
+                self.onPartialResult?(text)
+            }
+            // In server mode, Apple Speech is only a preview; suppress its errors
+            // (including cancel/no-speech) so they don't obscure the UI.
+        }
+
+        startAudioEngine(feedToRequest: request)
     }
 
     // MARK: - Common Audio Engine
@@ -183,7 +209,13 @@ final class AudioCaptureService {
     func stopRecording() {
         if audioEngine.isRunning { audioEngine.stop() }
         audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
+
+        if isCapturingForServer {
+            // Cancel local preview task so it doesn't fire a final result
+            recognitionTask?.cancel()
+        } else {
+            recognitionRequest?.endAudio()
+        }
 
         // In server mode, deliver the captured audio
         if isCapturingForServer && !audioBuffer.isEmpty {

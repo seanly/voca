@@ -30,6 +30,11 @@ final class Settings {
         set { defaults.set(newValue, forKey: "selectedLocaleCode") }
     }
 
+    var appleDictionaryValidationEnabled: Bool {
+        get { defaults.object(forKey: "appleDictionaryValidationEnabled") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "appleDictionaryValidationEnabled") }
+    }
+
     // MARK: - Overlay
 
     var overlayPosition: CGPoint? {

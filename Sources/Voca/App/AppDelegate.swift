@@ -229,7 +229,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Result Handling
 
     private func handleResult(raw: String, refined: String, wasRefined: Bool) {
-        overlayPanel.showResult(raw: raw, refined: refined, wasRefined: wasRefined)
+        let unknownWords: [String]
+        if Settings.shared.appleDictionaryValidationEnabled {
+            unknownWords = DictionaryValidator.shared.validateEnglishWords(in: refined)
+        } else {
+            unknownWords = []
+        }
+
+        overlayPanel.showResult(raw: raw, refined: refined, wasRefined: wasRefined, unknownWords: unknownWords)
 
         // Store in local history
         HistoryStore.shared.add(
